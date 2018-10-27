@@ -1,5 +1,9 @@
 import logging
+import inspect
 logger = logging.getLogger('circe.state')
+
+
+check_signature = lambda _:list(inspect.signature(_[0]).parameters.keys()) == _[1]
 
 class State(object):
     """
@@ -29,12 +33,16 @@ class State(object):
         assert type(states) is list
         assert all(map(lambda _:_ == _.lower(), states)), 'states must be lower-case'
         self.states = states
+        self.post_change_callback_maps = dict()
         if default:
             assert default in self.states
         else:
             default = self.states[0]
 
         self.current_state = default
+
+    def __hash__(self):
+        return hash(self.__name__) + hash(self.__parent__)
 
     def __set_name__(self, owner, name):
         self.__name__ = name
@@ -52,19 +60,24 @@ class State(object):
         else:
             return False
 
-    def change_state(self, new_state):
+    def change_state(self, new_state, source=None):
         assert new_state in getattr(self, 'states', [])
         cs = getattr(self, 'current_state', None)
         if new_state != cs:
-            logger.debug('{}: {} -> {}'.format(self.name, cs, new_state))
+            if source is None:
+                logger.debug('{}: {} -> {}'.format(self.name, cs, new_state))
+            else:
+                logger.debug('{}: {} -> {} (Source: {})'.format(self.name, cs, new_state, source))
+
             self.current_state = new_state
-            return True
+            for dest, incoming_state_map in self.post_change_callback_maps.items():
+                self.map_change_callback(dest, incoming_state_map, new_state, source)
         return False
 
     def __set__(self, instance, value):
         if getattr(self,'__parent__',None) is None:
             self.__parent__ = instance
-        self.change_state(value)
+        self.change_state(value, instance)
 
     def __setattr__(self, key, value):
         try:
@@ -80,5 +93,70 @@ class State(object):
         if other in self.states:
             return other == self.current_state
         return super().__eq__(other)
+
+    def set_input(self, input, incoming_state_map, allow_incomplete_map=False):
+        """
+        You can also connect states together by setting one state object as the input for another
+
+        >>> from kirke.object import Object
+        >>> class System(Object):
+        ...     connectivity = State(['unknown', 'offline', 'online'])
+        >>> system = System()
+        >>> class Remote(Object):
+        ...     door = State(['closed', 'open'])
+        >>> remote = Remote()
+        >>> print(remote.door)
+        door=[CLOSED, open]
+        >>> print(system.connectivity)
+        connectivity=[UNKNOWN, offline, online]
+        >>> state_mapping = {
+        ...     'online':'open',
+        ...     'offline':'closed'
+        ... }
+        >>> remote.door.set_input(input=system.connectivity, incoming_state_map=state_mapping)
+        Traceback (most recent call last):
+        ...
+        ValueError: Either define a default state using None as a key or map all incoming states
+
+        You must map all states, or set a default
+        >>> remote.door.set_input(input=system.connectivity, incoming_state_map=state_mapping, allow_incomplete_map=True)
+
+        But only one input allowed per state object
+        >>> remote.door.set_input(input=system.connectivity, incoming_state_map=state_mapping, allow_incomplete_map=True)
+        Traceback (most recent call last):
+        ...
+        AssertionError: Duplicate inputs not allowed
+        >>> print(remote.door)
+        door=[CLOSED, open]
+        >>> print(system.connectivity)
+        connectivity=[UNKNOWN, offline, online]
+        >>> system.connectivity.online = True
+        >>> print(remote.door)
+        door=[closed, OPEN]
+        """
+        if allow_incomplete_map is False:
+            if None not in incoming_state_map and len(input.states) != len(incoming_state_map):
+                raise ValueError('Either define a default state using None as a key or map all incoming states')
+
+        input.add_post_change_callback_map(self, incoming_state_map)
+
+    def map_change_callback(self, dest, incoming_state_map, new_state, source=None):
+
+        dest_state = incoming_state_map.get(new_state, None)
+
+        if dest_state is None:
+            dest_state = incoming_state_map.get(None)
+
+        dest.change_state(dest_state, source)
+
+    def add_post_change_callback_map(self, dest, incoming_state_map):
+        """
+        add a callback on state change that will be called with two arguments :-
+            self, new_state
+
+        """
+        assert dest not in self.post_change_callback_maps, 'Duplicate inputs not allowed'
+        self.post_change_callback_maps[dest] = incoming_state_map
+
 
 
