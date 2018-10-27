@@ -1,5 +1,7 @@
 import logging
 import inspect
+from typing import Dict, Any, List
+
 logger = logging.getLogger('circe.state')
 
 
@@ -28,8 +30,9 @@ class State(object):
     >>> system.connectivity.__parent__ == system
     True
     """
+    post_change_callback_maps: Dict['State', Dict]
 
-    def __init__(self,  states=None, default=None):
+    def __init__(self,  states: List =None, default: str=None):
         assert type(states) is list
         assert all(map(lambda _:_ == _.lower(), states)), 'states must be lower-case'
         self.states = states
@@ -60,7 +63,7 @@ class State(object):
         else:
             return False
 
-    def change_state(self, new_state, source=None):
+    def change_state(self, new_state: str, source: 'State'=None):
         assert new_state in getattr(self, 'states', [])
         cs = getattr(self, 'current_state', None)
         if new_state != cs:
@@ -94,7 +97,7 @@ class State(object):
             return other == self.current_state
         return super().__eq__(other)
 
-    def set_input(self, input, incoming_state_map, allow_incomplete_map=False):
+    def set_input(self, input: 'State', incoming_state_map: Dict, allow_incomplete_map: bool=False, replace_existing: bool=False):
         """
         You can also connect states together by setting one state object as the input for another
 
@@ -121,11 +124,12 @@ class State(object):
         You must map all states, or set a default
         >>> remote.door.set_input(input=system.connectivity, incoming_state_map=state_mapping, allow_incomplete_map=True)
 
-        But only one input allowed per state object
+        But only one input map per state object
         >>> remote.door.set_input(input=system.connectivity, incoming_state_map=state_mapping, allow_incomplete_map=True)
         Traceback (most recent call last):
         ...
-        AssertionError: Duplicate inputs not allowed
+        ValueError: Duplicate input objects not allowed
+        >>> remote.door.set_input(input=system.connectivity, incoming_state_map=state_mapping, allow_incomplete_map=True, replace_existing=True)
         >>> print(remote.door)
         door=[CLOSED, open]
         >>> print(system.connectivity)
@@ -138,7 +142,7 @@ class State(object):
             if None not in incoming_state_map and len(input.states) != len(incoming_state_map):
                 raise ValueError('Either define a default state using None as a key or map all incoming states')
 
-        input.add_post_change_callback_map(self, incoming_state_map)
+        input.add_post_change_callback_map(self, incoming_state_map, replace_existing)
 
     def map_change_callback(self, dest, incoming_state_map, new_state, source=None):
 
@@ -149,14 +153,16 @@ class State(object):
 
         dest.change_state(dest_state, source)
 
-    def add_post_change_callback_map(self, dest, incoming_state_map):
+    def add_post_change_callback_map(self, dest, incoming_state_map, replace_existing):
         """
         add a callback on state change that will be called with two arguments :-
             self, new_state
 
         """
-        assert dest not in self.post_change_callback_maps, 'Duplicate inputs not allowed'
+        if dest in self.post_change_callback_maps and not replace_existing:
+            raise ValueError('Duplicate input objects not allowed')
         self.post_change_callback_maps[dest] = incoming_state_map
+
 
 
 

@@ -79,25 +79,6 @@ class Object(object):
 
 
 
-class Alias(object):
-    """
-    bi-state object
-    """
-
-    def __init__(self, true, false):
-        assert true is not None
-        assert false is not None
-        self.true = true
-        self.false = false
-
-    def __eq__(self, other):
-        if other == True:
-            return True
-
-    def __set__(self, instance, value):
-        self.state = bool(value)
-
-
 
 
 
