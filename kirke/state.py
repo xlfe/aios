@@ -1,6 +1,6 @@
 import logging
 import inspect
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Callable
 
 logger = logging.getLogger('circe.state')
 
@@ -37,6 +37,7 @@ class State(object):
         assert all(map(lambda _:_ == _.lower(), states)), 'states must be lower-case'
         self.states = states
         self.post_change_callback_maps = dict()
+        self.output_callbacks = set()
         if default:
             assert default in self.states
         else:
@@ -72,15 +73,22 @@ class State(object):
             else:
                 logger.debug('{}: {} -> {} (Source: {})'.format(self.name, cs, new_state, source))
 
+            if all(can_change(new_state) for can_change, _ in self.output_callbacks) is False:
+                return False
+
+            if all(enact_change(new_state) for _, enact_change in self.output_callbacks) is not True:
+                return False
+
             self.current_state = new_state
+
             for dest, incoming_state_map in self.post_change_callback_maps.items():
                 self.map_change_callback(dest, incoming_state_map, new_state, source)
-        return False
+        return True
 
     def __set__(self, instance, value):
         if getattr(self,'__parent__',None) is None:
             self.__parent__ = instance
-        self.change_state(value, instance)
+        assert self.change_state(value, instance)
 
     def __setattr__(self, key, value):
         try:
@@ -97,7 +105,8 @@ class State(object):
             return other == self.current_state
         return super().__eq__(other)
 
-    def set_input(self, input: 'State', incoming_state_map: Dict, allow_incomplete_map: bool=False, replace_existing: bool=False):
+    def set_input(self, input: 'State', incoming_state_map: Dict, allow_incomplete_map: bool = False,
+                  replace_existing: bool = False):
         """
         You can also connect states together by setting one state object as the input for another
 
@@ -162,6 +171,43 @@ class State(object):
         if dest in self.post_change_callback_maps and not replace_existing:
             raise ValueError('Duplicate input objects not allowed')
         self.post_change_callback_maps[dest] = incoming_state_map
+
+    def set_output(self, can_change: Callable[[str], bool], enact_change: Callable[[str], bool]):
+        """
+        Changes to state will be output
+
+        >>> from kirke.object import Object
+        >>> class System(Object):
+        ...     connectivity = State(['offline', 'online'])
+        >>> class GPIO(object):
+        ...     _can_change = True
+        ...     current_state = None
+        ...     def can_change(self, new_state):
+        ...         return self._can_change and self.current_state != new_state
+        ...     def enact_change(self, new_state):
+        ...         if self.can_change(new_state) is False:
+        ...             return False
+        ...         self.current_state = new_state
+        ...         return True
+
+        >>> system = System()
+        >>> gpio = GPIO()
+        >>> system.connectivity.set_output(gpio.can_change, gpio.enact_change)
+        >>> print(system.connectivity)
+        connectivity=[OFFLINE, online]
+        >>> gpio.current_state == None
+        True
+        >>> system.connectivity = 'online'
+        >>> print(gpio.current_state)
+        online
+        >>> gpio._can_change = False
+        >>> system.connectivity.set_output(gpio.can_change, gpio.enact_change)
+        >>> system.connectivity = 'offline'
+        Traceback (most recent call last):
+        ...
+        AssertionError
+        """
+        self.output_callbacks.add(frozenset([can_change, enact_change]))
 
 
 
