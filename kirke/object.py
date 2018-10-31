@@ -3,45 +3,95 @@ logger = logging.getLogger('circe.object')
 
 from .state import State
 
-OTHER_CIRCE_TYPES = [State]
-
 class Object(object):
     """
-    The Circe Object is the root of the Circe state system
+    The Object class forms the basis of the Circe system.
 
+    It does a number of things
+
+    To use Circe, the first thing to do is create a class that inherits
+    from Object for each type of object in your overall system.
+
+    When instantiating your class, the following (optional) Circe keywords can be specified:-
+
+    * name
+    * children
+
+    >>> class System(Object):
+    ...     pass
     >>> class Node(Object):
     ...     pass
-    >>> class System(Object):
-    ...     CIRCE_SUB_OBJECTS = {'Node':Node}
-    ...     def __init__(self, system_ident):
-    ...         self.__name__ = system_ident
-
-    >>> system = System('system-123')
-    >>> system.endpoint = system.Node()
-    >>> print(system)
-    <system-123>
+    >>> system = System(name='iot', children={'endpoint': Node()})
     >>> print(system.endpoint)
-    <system-123.endpoint>
-    >>> system.endpoint.__parent__ == system
-    True
+    <iot.endpoint>
+
+    Child objects access the parent class using the __parent__ attribute, set during __init__
+
+    >>> assert system.endpoint.__parent__ is system
+
+    Your Object derived classes can have their own __init__, but you must
+    include **kwargs to capture arbitrary arguments which are used by Circe
+
+    >>> class System(Object):
+    ...     def __init__(self, device_mac, **kwargs):
+    ...         self.device_mac = device_mac
+    >>> system = System(name='iot', device_mac='ab:cd:ef:gh:12', children={'endpoint': Node()})
+    >>> assert system.device_mac == 'ab:cd:ef:gh:12' and system.__name__ == 'iot'
+
+    The Circe hierarchy is setup after the child classes are created, so things will
+    break if you try to use a Circe construct during your classes __init__
+
+    >>> class Node(Object):
+    ...     def __init__(self, **kwargs):
+    ...         assert self.__parent__
+    >>> system = System(name='iot', device_mac='ab:cd:ef:gh:12', children={'endpoint': Node()})
+    Traceback (most recent call last):
+    ...
+    AttributeError: 'Node' object has no attribute '__parent__'
+
+    If you need to perform setup or initialisation tasks on any Circe Children objects
+    using Circe constructs, define a __circe__child__init__ function (which has no arguments)
+
+
+    >>> class Node(Object):
+    ...     def __circe__child__init__(self):
+    ...         self.__parent__.__name__ = 'node-123'
+    >>> system = System(name='iot', device_mac='ab:cd:ef:gh:12', children={'endpoint': Node()})
+    >>> print(system.endpoint)
+    <node-123.endpoint>
+
+    You don't need to do this on the top Class of your Circe hierarchy though
+
+    >>> class System(Object):
+    ...     def __init__(self, device_mac, **kwargs):
+    ...         self.device_mac = device_mac
+    ...         for name, obj in self._circe_children.items():
+    ...             obj.__name__ = 'MAC:{}-{}'.format(device_mac, name)
+    >>> system = System(name='iot', device_mac='ab:cd:ef:gh:12', children={'endpoint': Node()})
+    >>> print(system.endpoint)
+    <node-123.MAC:ab:cd:ef:gh:12-endpoint>
+
+
     """
 
-    CIRCE_SUB_OBJECTS = {}
+    def __new__(cls, *args, **kwargs):
+        o = super().__new__(cls)
 
-    def __getattr__(self, item):
+        name = kwargs.pop('name', None)
+        if name:
+            setattr(o, '__name__', name)
+        setattr(o, '_circe_children', kwargs.pop('children', {}))
+        for name, obj in  o._circe_children.items():
+            #all children are already instances
+            obj.__parent__ = o
+            obj.__name__ = name
+            setattr(o, name, obj)
+            try:
+                obj.__circe__child__init__()
+            except AttributeError:
+                pass
 
-        obj = self.CIRCE_SUB_OBJECTS.get(item)
-
-        if obj is None:
-            raise AttributeError()
-
-        def wrapper(*args, **kwargs):
-            _ = obj.__new__(obj)
-            setattr(_, '__parent__', self)
-            _.__init__(*args, **kwargs)
-            return _
-
-        return wrapper
+        return o
 
     def __branch__(self):
         _=[]
@@ -59,20 +109,6 @@ class Object(object):
         states = ' '.join(map(lambda _:_[1].__repr__(), inspect.getmembers(self, lambda _:isinstance(_, State))))
         return '<{}{}>'.format('.'.join(names), (' ' if states else '') + states)
 
-    def __setattr__(self, name, value):
-        super().__setattr__(name, value)
-        if isinstance(value, tuple([Object] + OTHER_CIRCE_TYPES)):
-            if getattr(value, '__name__', None) is None:
-                value.__name__ = name
-            # if getattr(value, '__parent__', None) is None:
-            #     raise Exception(name)
-            #     value.__parent__ = self
-
-    def __new__(cls, *args, **kwargs):
-        o = super().__new__(cls)
-        for name, state in inspect.getmembers(o, lambda _:isinstance(_, State)):
-            state.__parent__ = o
-        return o
 
 
 

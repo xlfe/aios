@@ -2,4 +2,4 @@
 
 PYTHON=$(which python)
 
-$PYTHON setup.py nosetests --with-doctest --doctest-options=+ELLIPSIS --debug=circe
+$PYTHON setup.py nosetests --with-doctest --doctest-options=+ELLIPSIS --debug=circe -x
