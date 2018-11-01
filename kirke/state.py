@@ -1,144 +1,166 @@
 import logging
 import inspect
+import collections
 from typing import Dict, Any, List, Callable
 
 logger = logging.getLogger('circe.state')
 
 
-check_signature = lambda _:list(inspect.signature(_[0]).parameters.keys()) == _[1]
 
 class State(object):
     """
-    State is used for managing states and transitions.
+    State allows you to manage a state machine and state transitions and integrates with Circe Objects.
 
     >>> from kirke.object import Object
     >>> class System(Object):
-    ...     connectivity = State(['unknown', 'online', 'offline'])
+    ...     def __init__(self, **kwargs):
+    ...         self._circe_add_child('connectivity', State(['unknown', 'online', 'offline']))
     >>> system = System()
-    >>> system.connectivity.__parent__ == system
-    True
-    >>> print(system.connectivity)
-    connectivity=[UNKNOWN, online, offline]
-    >>> system.connectivity.online = True
+    >>> print(system)
+    <System connectivity=[UNKNOWN, online, offline]>
+
+    UPPERCASE states indicate that is the current state. You can assign
+    truthy values to a state to enact a change
+
+    >>> system.connectivity.ONLINE = True
     >>> print(system)
     <System connectivity=[unknown, ONLINE, offline]>
+
+    You can also test equality against a state
+
     >>> system.connectivity == 'online'
     True
+
+    Or apply a string to the object to change state
     >>> system.connectivity = 'offline'
     >>> print(system)
     <System connectivity=[unknown, online, OFFLINE]>
-    >>> system.connectivity.__parent__ == system
-    True
     """
     post_change_callback_maps: Dict['State', Dict]
 
-    def __init__(self,  states: List =None, default: str=None):
+    def __init__(self,  states: List =None, default: str=None, name=None):
         assert type(states) is list
         assert all(map(lambda _:_ == _.lower(), states)), 'states must be lower-case'
         self.states = states
-        self.post_change_callback_maps = dict()
         self.output_callbacks = set()
+        self.post_change_callbacks = collections.defaultdict(list)
         if default:
             assert default in self.states
         else:
             default = self.states[0]
 
         self.current_state = default
-
-    def __hash__(self):
-        return hash(self.__name__) + hash(self.__parent__)
-
-    def __set_name__(self, owner, name):
         self.__name__ = name
 
-    @property
-    def name(self):
-        return getattr(self,'__name__', None)
+    # def __hash__(self):
+    #     return hash(self.__name__) + hash(self.__parent__)
 
     def __getattr__(self, item):
-        if item not in self.__getattribute__('states'):
+        """
+        state object supports two access methods
+
+        >>> s = State(name='test', states=['one', 'two'])
+        >>> print(s)
+        test=[ONE, two]
+
+        The simple form is the uppercase state name, which returns True or False
+
+        >>> print(s.TWO)
+        False
+
+        The lowercase form is used for linking states and returns a tuple of the class and the state
+
+        >>> print(s.one)
+        (test=[ONE, two], 'one')
+
+        """
+        if item.lower() not in self.__getattribute__('states'):
             raise AttributeError()
 
-        if item == self.__getattribute__('current_state'):
-            return True
+        if item.isupper():
+            if item.lower() == self.__getattribute__('current_state'):
+                return True
+            else:
+                return False
+        elif item.islower():
+            return (self, item)
         else:
-            return False
+            raise AttributeError()
 
     def change_state(self, new_state: str, source: 'State'=None):
         assert new_state in getattr(self, 'states', [])
         cs = getattr(self, 'current_state', None)
         if new_state != cs:
             if source is None:
-                logger.debug('{}: {} -> {}'.format(self.name, cs, new_state))
+                logger.debug('{}: {} -> {}'.format(self.__name__, cs, new_state))
             else:
-                logger.debug('{}: {} -> {} (Source: {})'.format(self.name, cs, new_state, source))
+                logger.debug('{}: {} -> {} (Source: {})'.format(self.__name__, cs, new_state, source))
 
-            if all(can_change(new_state) for can_change, _ in self.output_callbacks) is False:
-                return False
+            notified = []
+            for obj in self.output_callbacks:
+                try:
+                    obj.will_change(new_state)
+                    notified.append(obj)
+                except:
+                    for _ in notified:
+                        _.wont_change()
+                    raise
 
-            if all(enact_change(new_state) for _, enact_change in self.output_callbacks) is not True:
-                return False
+            for obj in self.output_callbacks:
+                obj.has_changed(new_state)
 
             self.current_state = new_state
 
-            for dest, incoming_state_map in self.post_change_callback_maps.items():
-                self.map_change_callback(dest, incoming_state_map, new_state, source)
-        return True
+            for dest, dest_state in self.post_change_callbacks[new_state]:
+                dest.change_state(dest_state, self)
 
     def __set__(self, instance, value):
-        if getattr(self,'__parent__',None) is None:
-            self.__parent__ = instance
-        assert self.change_state(value, instance)
+        self.change_state(value, instance)
 
     def __setattr__(self, key, value):
-        try:
-            self.change_state(key)
-        except AssertionError:
+        if key.lower() in getattr(self, 'states', []):
+
+            if self.check_state_tuple(value):
+                self.set_input({key: value})
+            elif type(value) is list and all(self.check_state_tuple(_) for _ in value):
+                map(lambda _:self.set_input({_[0]:_[1]}), value)
+            else:
+                self.change_state(key.lower())
+                assert bool(value)
+        else:
             super().__setattr__(key, value)
 
     def __repr__(self):
         states = map(lambda _:_.lower() if _ != self.current_state else _.upper(), self.states)
-        return '{}=[{}]'.format(getattr(self,'__name__',''), ', '.join(states))
+        return '{}=[{}]'.format(self.__name__, ', '.join(states))
 
     def __eq__(self, other):
         if other in self.states:
             return other == self.current_state
         return super().__eq__(other)
 
-    def set_input(self, input: 'State', incoming_state_map: Dict, allow_incomplete_map: bool = False,
-                  replace_existing: bool = False):
+    @staticmethod
+    def check_state_tuple(t):
+        return type(t) is tuple and isinstance(t[0], State) and type(t[1]) is str
+
+    def set_input(self, state_map: Dict):
         """
         You can also connect states together by setting one state object as the input for another
 
         >>> from kirke.object import Object
-        >>> class System(Object):
-        ...     connectivity = State(['unknown', 'offline', 'online'])
-        >>> system = System()
-        >>> class Remote(Object):
-        ...     door = State(['closed', 'open'])
-        >>> remote = Remote()
+        >>> system = Object(name='system', children=dict(connectivity = State(['unknown', 'offline', 'online'])))
+        >>> remote = Object(name='remote', children={'door':State(['closed', 'open'])})
         >>> print(remote.door)
         door=[CLOSED, open]
         >>> print(system.connectivity)
         connectivity=[UNKNOWN, offline, online]
-        >>> state_mapping = {
-        ...     'online':'open',
-        ...     'offline':'closed'
-        ... }
-        >>> remote.door.set_input(input=system.connectivity, incoming_state_map=state_mapping)
-        Traceback (most recent call last):
-        ...
-        ValueError: Either define a default state using None as a key or map all incoming states
-
-        You must map all states, or set a default
-        >>> remote.door.set_input(input=system.connectivity, incoming_state_map=state_mapping, allow_incomplete_map=True)
-
-        But only one input map per state object
-        >>> remote.door.set_input(input=system.connectivity, incoming_state_map=state_mapping, allow_incomplete_map=True)
-        Traceback (most recent call last):
-        ...
-        ValueError: Duplicate input objects not allowed
-        >>> remote.door.set_input(input=system.connectivity, incoming_state_map=state_mapping, allow_incomplete_map=True, replace_existing=True)
+        >>> remote.door.set_input(dict(
+        ...     closed= [
+        ...             system.connectivity.offline,
+        ...             system.connectivity.unknown
+        ...     ],
+        ...     open= system.connectivity.online
+        ... ))
         >>> print(remote.door)
         door=[CLOSED, open]
         >>> print(system.connectivity)
@@ -146,53 +168,73 @@ class State(object):
         >>> system.connectivity.online = True
         >>> print(remote.door)
         door=[closed, OPEN]
+
+
+        Or if you prefer, you can chain them like so
+
+        >>> system = Object(name='system', children=dict(connectivity = State(['unknown', 'offline', 'online'])))
+        >>> remote = Object(name='remote', children={'door':State(['closed', 'open'])})
+        >>> very_remote = Object(name='very_remote', children={'alarm':State(['disarmed', 'armed'])})
+        >>> print(remote.door)
+        door=[CLOSED, open]
+        >>> print(system.connectivity)
+        connectivity=[UNKNOWN, offline, online]
+        >>> print(very_remote.alarm)
+        alarm=[DISARMED, armed]
+        >>> remote.door.closed = [system.connectivity.offline, system.connectivity.unknown]
+        >>> very_remote.alarm.armed = remote.door.open
+        >>> remote.door.open = system.connectivity.online
+        >>> system.connectivity.online = True
+        >>> print(very_remote.alarm)
+        alarm=[disarmed, ARMED]
+
         """
-        if allow_incomplete_map is False:
-            if None not in incoming_state_map and len(input.states) != len(incoming_state_map):
-                raise ValueError('Either define a default state using None as a key or map all incoming states')
 
-        input.add_post_change_callback_map(self, incoming_state_map, replace_existing)
+        for state, sources in state_map.items():
 
-    def map_change_callback(self, dest, incoming_state_map, new_state, source=None):
+            if type(sources) is tuple:
+                sources = [sources]
+            all(self.check_state_tuple(_) for _ in sources)
 
-        dest_state = incoming_state_map.get(new_state, None)
+            for dest, dest_state in sources:
+                dest.post_change_callbacks[dest_state].append((self, state))
 
-        if dest_state is None:
-            dest_state = incoming_state_map.get(None)
 
-        dest.change_state(dest_state, source)
 
-    def add_post_change_callback_map(self, dest, incoming_state_map, replace_existing):
+
+    def set_output(self, obj):
         """
-        add a callback on state change that will be called with two arguments :-
-            self, new_state
+        Changes to the State object output using a class that has the following methods:
 
-        """
-        if dest in self.post_change_callback_maps and not replace_existing:
-            raise ValueError('Duplicate input objects not allowed')
-        self.post_change_callback_maps[dest] = incoming_state_map
+        will_change(new_state)
+        has_changed(new_state)
+        wont_change()
 
-    def set_output(self, can_change: Callable[[str], bool], enact_change: Callable[[str], bool]):
-        """
-        Changes to state will be output
+
+        will_change is called first, to check whether the change will succeed. Raise an exception if the change
+        will not succeed. Your implementation should guarantee that after not raising an exception during will_change
+        the state change will succeed when has_changed is called. wont_change will be called if the change does
+        not succeeed and will_change was called previously.
+
+        The state will not change unless all outputs succeed
 
         >>> from kirke.object import Object
-        >>> class System(Object):
-        ...     connectivity = State(['offline', 'online'])
+        >>> import logging
         >>> class GPIO(object):
-        ...     _can_change = True
-        ...     current_state = None
-        ...     def can_change(self, new_state):
-        ...         return self._can_change and self.current_state != new_state
-        ...     def enact_change(self, new_state):
-        ...         if self.can_change(new_state) is False:
-        ...             return False
+        ...     def __init__(self):
+        ...         self._can_change = True
+        ...         self.current_state = None
+        ...     def will_change(self, new_state):
+        ...         if self._can_change is not True or self.current_state == new_state:
+        ...             raise Exception('Change not allowed')
+        ...     def has_changed(self, new_state):
         ...         self.current_state = new_state
-        ...         return True
+        ...     def wont_change(self):
+        ...         pass
 
-        >>> system = System()
+        >>> system = Object(name='system', children={'connectivity': State(['offline', 'online'])})
         >>> gpio = GPIO()
-        >>> system.connectivity.set_output(gpio.can_change, gpio.enact_change)
+        >>> system.connectivity.set_output(gpio)
         >>> print(system.connectivity)
         connectivity=[OFFLINE, online]
         >>> gpio.current_state == None
@@ -201,13 +243,19 @@ class State(object):
         >>> print(gpio.current_state)
         online
         >>> gpio._can_change = False
-        >>> system.connectivity.set_output(gpio.can_change, gpio.enact_change)
         >>> system.connectivity = 'offline'
         Traceback (most recent call last):
         ...
-        AssertionError
+        Exception: Change not allowed
+        >>> system.connectivity == 'online'
+        True
+
+
+
         """
-        self.output_callbacks.add(frozenset([can_change, enact_change]))
+
+        assert callable(obj.will_change) and callable(obj.has_changed) and callable(obj.wont_change)
+        self.output_callbacks.add(obj)
 
 
 

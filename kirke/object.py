@@ -71,27 +71,39 @@ class Object(object):
     >>> print(system.endpoint)
     <node-123.MAC:ab:cd:ef:gh:12-endpoint>
 
+    You can add children to an object at any time, but names must be unique for each parent
 
+    >>> system._circe_add_child('endpoint', Node())
+    Traceback (most recent call last):
+    ...
+    Exception: An object named "endpoint" was already defined on "node-123"
     """
 
     def __new__(cls, *args, **kwargs):
         o = super().__new__(cls)
 
-        name = kwargs.pop('name', None)
-        if name:
-            setattr(o, '__name__', name)
-        setattr(o, '_circe_children', kwargs.pop('children', {}))
-        for name, obj in  o._circe_children.items():
+        setattr(o, '__name__', kwargs.pop('name', cls.__name__))
+        setattr(o, '_circe_children', {})
+        for name, obj in  kwargs.pop('children', {}).items():
             #all children are already instances
-            obj.__parent__ = o
-            obj.__name__ = name
-            setattr(o, name, obj)
-            try:
-                obj.__circe__child__init__()
-            except AttributeError:
-                pass
+            o._circe_add_child(name, obj)
 
         return o
+
+    def _circe_add_child(self, name, obj):
+        try:
+            getattr(self, name)
+            raise Exception('An object named "{}" was already defined on "{}"'.format(name, self.__name__))
+        except (AttributeError):
+            pass
+        obj.__parent__ = self
+        obj.__name__ = name
+        setattr(self, name, obj)
+        self._circe_children[name] = obj
+        try:
+            obj.__circe__child__init__()
+        except AttributeError:
+            pass
 
     def __branch__(self):
         _=[]
@@ -105,10 +117,23 @@ class Object(object):
                 return _
 
     def __repr__(self):
-        names = map(lambda _:getattr(_, '__name__', _.__class__.__name__), self.__branch__())
-        states = ' '.join(map(lambda _:_[1].__repr__(), inspect.getmembers(self, lambda _:isinstance(_, State))))
+        names = map(lambda _:_.__name__, self.__branch__())
+        states = ' '.join(map(lambda _:_.__repr__(), self._circe_children.values()))
         return '<{}{}>'.format('.'.join(names), (' ' if states else '') + states)
 
+    def __setattr__(self, attr, val):
+        """capture attribute assignment of instance variables"""
+        try:
+            obj = object.__getattribute__(self, attr)
+        except AttributeError:
+            # This will be raised if we are setting the attribute for the first time
+            # i.e inside `__init__` in your case.
+            object.__setattr__(self, attr, val)
+        else:
+            if hasattr(obj, '__set__'):
+                obj.__set__(self, val)
+            else:
+                object.__setattr__(self, attr, val)
 
 
 
