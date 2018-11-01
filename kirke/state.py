@@ -14,17 +14,20 @@ class State(object):
     >>> from kirke.object import Object
     >>> class System(Object):
     ...     def __init__(self, **kwargs):
-    ...         self._circe_add_child('connectivity', State(['unknown', 'online', 'offline']))
+    ...         self._circe_add_child('connectivity', State(['online', 'offline']))
     >>> system = System()
+
+    If you don't specify a default state, the state is undefined to begin with :-
+
     >>> print(system)
-    <System connectivity=[UNKNOWN, online, offline]>
+    <System connectivity=[online, offline]>
 
     UPPERCASE states indicate that is the current state. You can assign
     truthy values to a state to enact a change
 
     >>> system.connectivity.ONLINE = True
     >>> print(system)
-    <System connectivity=[unknown, ONLINE, offline]>
+    <System connectivity=[ONLINE, offline]>
 
     You can also test equality against a state
 
@@ -34,7 +37,7 @@ class State(object):
     Or apply a string to the object to change state
     >>> system.connectivity = 'offline'
     >>> print(system)
-    <System connectivity=[unknown, online, OFFLINE]>
+    <System connectivity=[online, OFFLINE]>
     """
     post_change_callback_maps: Dict['State', Dict]
 
@@ -44,13 +47,13 @@ class State(object):
         self.states = states
         self.output_callbacks = set()
         self.post_change_callbacks = collections.defaultdict(list)
-        if default:
-            assert default in self.states
-        else:
-            default = self.states[0]
-
-        self.current_state = default
         self.__name__ = name
+        if default is not None:
+            assert default in self.states
+            self.current_state = default
+        else:
+            self.current_state = None
+
 
     # def __hash__(self):
     #     return hash(self.__name__) + hash(self.__parent__)
@@ -59,7 +62,7 @@ class State(object):
         """
         state object supports two access methods
 
-        >>> s = State(name='test', states=['one', 'two'])
+        >>> s = State(name='test', states=['one', 'two'], default='one')
         >>> print(s)
         test=[ONE, two]
 
@@ -148,23 +151,23 @@ class State(object):
         You can also connect states together by setting one state object as the input for another
 
         >>> from kirke.object import Object
-        >>> system = Object(name='system', children=dict(connectivity = State(['unknown', 'offline', 'online'])))
-        >>> remote = Object(name='remote', children={'door':State(['closed', 'open'])})
+        >>> system = Object(name='system', children=dict(connectivity = State(['slow', 'offline', 'online'], default='offline')))
+        >>> remote = Object(name='remote', children={'door':State(['closed', 'open'], default='closed')})
         >>> print(remote.door)
         door=[CLOSED, open]
         >>> print(system.connectivity)
-        connectivity=[UNKNOWN, offline, online]
+        connectivity=[slow, OFFLINE, online]
         >>> remote.door.set_input(dict(
         ...     closed= [
         ...             system.connectivity.offline,
-        ...             system.connectivity.unknown
+        ...             system.connectivity.slow
         ...     ],
         ...     open= system.connectivity.online
         ... ))
         >>> print(remote.door)
         door=[CLOSED, open]
         >>> print(system.connectivity)
-        connectivity=[UNKNOWN, offline, online]
+        connectivity=[slow, OFFLINE, online]
         >>> system.connectivity.online = True
         >>> print(remote.door)
         door=[closed, OPEN]
@@ -172,16 +175,16 @@ class State(object):
 
         Or if you prefer, you can chain them like so
 
-        >>> system = Object(name='system', children=dict(connectivity = State(['unknown', 'offline', 'online'])))
-        >>> remote = Object(name='remote', children={'door':State(['closed', 'open'])})
+        >>> system = Object(name='system', children=dict(connectivity = State(['slow', 'offline', 'online'], default='offline')))
+        >>> remote = Object(name='remote', children={'door':State(['closed', 'open'], default='closed')})
         >>> very_remote = Object(name='very_remote', children={'alarm':State(['disarmed', 'armed'])})
         >>> print(remote.door)
         door=[CLOSED, open]
         >>> print(system.connectivity)
-        connectivity=[UNKNOWN, offline, online]
+        connectivity=[slow, OFFLINE, online]
         >>> print(very_remote.alarm)
-        alarm=[DISARMED, armed]
-        >>> remote.door.closed = [system.connectivity.offline, system.connectivity.unknown]
+        alarm=[disarmed, armed]
+        >>> remote.door.closed = [system.connectivity.offline, system.connectivity.slow]
         >>> very_remote.alarm.armed = remote.door.open
         >>> remote.door.open = system.connectivity.online
         >>> system.connectivity.online = True
@@ -233,7 +236,7 @@ class State(object):
         >>> gpio = GPIO()
         >>> system.connectivity.set_output(gpio)
         >>> print(system.connectivity)
-        connectivity=[OFFLINE, online]
+        connectivity=[offline, online]
         >>> gpio.current_state == None
         True
         >>> system.connectivity = 'online'
