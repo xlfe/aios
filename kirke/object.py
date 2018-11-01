@@ -47,24 +47,30 @@ class Object(object):
     AttributeError: 'Node' object has no attribute '__parent__'
 
     If you need to perform setup or initialisation tasks on any Circe Children objects
-    using Circe constructs, define a __circe__child__init__ function (which has no arguments)
+    using Circe constructs, define a _circe_child_init function (which has no arguments)
+    and when you're Circe system has been instantiated, call _circe_state_init() on the top
+    level object :-
 
 
     >>> class Node(Object):
-    ...     def __circe__child__init__(self):
+    ...     def _circe_child_init(self):
     ...         self.__parent__.__name__ = 'node-123'
     >>> system = System(name='iot', device_mac='ab:cd:ef:gh:12', children={'endpoint': Node()})
-    >>> print(system.endpoint)
-    <node-123.endpoint>
+    >>> print(system)
+    <iot <iot.endpoint>>
+    >>> system._circe_state_init()
+    <node-123 <node-123.endpoint>>
 
-    You don't need to do this on the top Class of your Circe hierarchy though
+    Note - you don't need to use the _circe_child_init on the top Class of your
+    Circe hierarchy though, because all of the child objects have been instantiated by the time
+    __init__ is run on that top object.
 
     >>> class System(Object):
     ...     def __init__(self, device_mac, **kwargs):
     ...         self.device_mac = device_mac
     ...         for name, obj in self._circe_children.items():
     ...             obj.__name__ = 'MAC:{}-{}'.format(device_mac, name)
-    >>> system = System(name='iot', device_mac='ab:cd:ef:gh:12', children={'endpoint': Node()})
+    >>> system = System(name='iot', device_mac='ab:cd:ef:gh:12', children={'endpoint': Node()})._circe_state_init()
     >>> print(system.endpoint)
     <node-123.MAC:ab:cd:ef:gh:12-endpoint>
 
@@ -97,10 +103,13 @@ class Object(object):
         obj.__name__ = name
         setattr(self, name, obj)
         self._circe_children[name] = obj
-        try:
-            obj.__circe__child__init__()
-        except AttributeError:
-            pass
+
+    def _circe_state_init(self):
+        for name, obj in getattr(self, '_circe_children', {}).items():
+            if hasattr(obj, '_circe_child_init') and callable(obj._circe_child_init):
+                obj._circe_child_init()
+                obj._circe_state_init()
+        return self
 
     def __branch__(self):
         _=[]
