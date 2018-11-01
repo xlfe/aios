@@ -4,10 +4,7 @@ logger = logging.getLogger('circe.object')
 from .state import State
 
 class Object(object):
-    """
-    The Object class forms the basis of the Circe system.
-
-    It does a number of things
+    """Object forms the basis of the Circe system.
 
     To use Circe, the first thing to do is create a class that inherits
     from Object for each type of object in your overall system.

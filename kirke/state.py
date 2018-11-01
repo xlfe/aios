@@ -203,18 +203,16 @@ class State(object):
 
 
     def set_output(self, obj):
-        """
-        Changes to the State object output using a class that has the following methods:
+        """Changes to the State object output using a class that has the following methods:
 
-        will_change(new_state)
-        has_changed(new_state)
-        wont_change()
+        - will_change(new_state)
+        - has_changed(new_state)
+        - wont_change()
 
-
-        will_change is called first, to check whether the change will succeed. Raise an exception if the change
-        will not succeed. Your implementation should guarantee that after not raising an exception during will_change
-        the state change will succeed when has_changed is called. wont_change will be called if the change does
-        not succeeed and will_change was called previously.
+        `will_change` is called first, to check whether the change will succeed. Raise an exception if the change
+        will not succeed. Your implementation should guarantee that after not raising an exception during `will_change`
+        the state change will succeed when `has_changed` is called. `wont_change` will be called if the change does
+        not succeed and `will_change` was called previously.
 
         The state will not change unless all outputs succeed
 
@@ -231,7 +229,6 @@ class State(object):
         ...         self.current_state = new_state
         ...     def wont_change(self):
         ...         pass
-
         >>> system = Object(name='system', children={'connectivity': State(['offline', 'online'])})
         >>> gpio = GPIO()
         >>> system.connectivity.set_output(gpio)
@@ -249,9 +246,6 @@ class State(object):
         Exception: Change not allowed
         >>> system.connectivity == 'online'
         True
-
-
-
         """
 
         assert callable(obj.will_change) and callable(obj.has_changed) and callable(obj.wont_change)
