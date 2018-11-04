@@ -1,4 +1,6 @@
 import logging
+import asyncio
+import time
 import inspect
 import collections
 from typing import Dict, Any, List, Callable
@@ -102,15 +104,18 @@ class State(object):
             notified = []
             for obj in self.output_callbacks:
                 try:
-                    obj.will_change(new_state)
+                    obj.notify(new_state)
                     notified.append(obj)
                 except:
                     for _ in notified:
-                        _.wont_change()
+                        _.cancel()
                     raise
 
             for obj in self.output_callbacks:
-                obj.has_changed(new_state)
+                obj.begin(new_state)
+
+            while not all(_.completed(new_state) for _ in self.output_callbacks):
+                time.sleep(0.01)
 
             self.current_state = new_state
 
@@ -208,16 +213,23 @@ class State(object):
     def set_output(self, obj):
         """Changes to the State object output using a class that has the following methods:
 
-        - will_change(new_state)
-        - has_changed(new_state)
-        - wont_change()
+        All of these functions should be non-blocking.
 
-        `will_change` is called first, to check whether the change will succeed. Raise an exception if the change
-        will not succeed. Your implementation should guarantee that after not raising an exception during `will_change`
-        the state change will succeed when `has_changed` is called. `wont_change` will be called if the change does
-        not succeed and `will_change` was called previously.
+        - notify(new_state)
+        Notify the desire to change state - called first.
+        Raise an exception to block the change from proceeding.
+        Your implementation should guarantee that after not raising
+        an exception during notify it will change state after begin is called.
 
-        The state will not change unless all outputs succeed
+        - cancel()
+        Called to cancel the notified change (eg one of the other outputs raised an Exception)
+
+        - begin(new_state)
+        Notify that a change is proceeding - (the change can be made now).
+
+        - completed(new_state)
+        Check whether a change has completed - return True to signify the change was
+        successful or False to signify the change is still in progress.
 
         >>> from kirke.object import Object
         >>> import logging
@@ -225,12 +237,14 @@ class State(object):
         ...     def __init__(self):
         ...         self._can_change = True
         ...         self.current_state = None
-        ...     def will_change(self, new_state):
+        ...     def notify(self, new_state):
         ...         if self._can_change is not True or self.current_state == new_state:
         ...             raise Exception('Change not allowed')
-        ...     def has_changed(self, new_state):
+        ...     def begin(self, new_state):
         ...         self.current_state = new_state
-        ...     def wont_change(self):
+        ...     def completed(self, new_state):
+        ...         return True
+        ...     def cancel(self):
         ...         pass
         >>> system = Object(name='system', children={'connectivity': State(['offline', 'online'])})
         >>> gpio = GPIO()
@@ -251,7 +265,10 @@ class State(object):
         True
         """
 
-        assert callable(obj.will_change) and callable(obj.has_changed) and callable(obj.wont_change)
+        assert callable(obj.notify) and \
+               callable(obj.cancel) and \
+               callable(obj.begin) and \
+               callable(obj.completed)
         self.output_callbacks.add(obj)
 
 
