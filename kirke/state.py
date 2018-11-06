@@ -7,6 +7,15 @@ from typing import Dict, Any, List, Callable
 
 logger = logging.getLogger('circe.state')
 
+# notify
+# cancel
+# begin
+# completed
+
+# acquire lock
+# change state
+# release lock
+
 
 
 class State(object):
@@ -92,35 +101,121 @@ class State(object):
         else:
             raise AttributeError()
 
-    def change_state(self, new_state: str, source: 'State'=None):
+    def check_change_state(self, new_state: str, source: 'State'=None):
         assert new_state in getattr(self, 'states', [])
         cs = getattr(self, 'current_state', None)
-        if new_state != cs:
-            if source is None:
-                logger.debug('{}: {} -> {}'.format(self.__name__, cs, new_state))
-            else:
-                logger.debug('{}: {} -> {} (Source: {})'.format(self.__name__, cs, new_state, source))
+        if new_state == cs:
+            return False
 
-            notified = []
-            for obj in self.output_callbacks:
-                try:
-                    obj.notify(new_state)
-                    notified.append(obj)
-                except:
-                    for _ in notified:
-                        _.cancel()
-                    raise
+        if source is None:
+            logger.debug('BEGIN {}: {} -> {}'.format(self.__name__, cs, new_state))
+        else:
+            logger.debug('BEGIN {}: {} -> {} (Source: {})'.format(self.__name__, cs, new_state, source))
 
-            for obj in self.output_callbacks:
-                obj.begin(new_state)
+        return True
 
-            while not all(_.completed(new_state) for _ in self.output_callbacks):
-                time.sleep(0.01)
+    async def change_state_async(self, new_state: str, source: 'State'=None):
+        """
 
-            self.current_state = new_state
+        >>> from kirke.object import Object
+        >>> import asyncio
+        >>> class GPIO_Async(object):
+        ...     def __init__(self):
+        ...         self._lock = None
+        ...         self.current_state = None
+        ...     async def acquire_lock(self, new_state):
+        ...         if self._lock is not None:
+        ...             raise Exception('Change not allowed')
+        ...         self._lock = new_state
+        ...     async def change(self):
+        ...         await asyncio.sleep(1)
+        ...         self.current_state = self._lock
+        ...     async def release_lock(self):
+        ...         self._lock = None
+        ...     def require_async(self):
+        ...         return True
+        >>> system = Object(name='system', children={'connectivity': State(['offline', 'online'])})
+        >>> gpio = GPIO_Async()
+        >>> system.connectivity.set_output(gpio)
+        >>> print(system.connectivity)
+        connectivity=[offline, online]
+        >>> gpio.current_state == None
+        True
+        >>> loop = asyncio.get_event_loop()
+        >>> loop.run_until_complete(system.connectivity.change_state_async('online'))
+        >>> print(gpio.current_state)
+        online
+        """
+        if not self.check_change_state(new_state, source):
+            return
 
+        locked = []
+        locked_async = []
+        for obj in self.output_callbacks:
+
+            try:
+                if obj.require_async():
+                    await obj.acquire_lock(new_state)
+                    locked_async.append(obj)
+                else:
+                    obj.acquire_lock(new_state)
+                    locked.append(obj)
+            except:
+                all(_.release_lock() for _ in locked)
+                for _ in locked_async:
+                    await _.release_lock()
+                raise
+
+        all(_.change() for _ in locked)
+        for _ in locked_async:
+            await _.change()
+
+        for dest, dest_state in self.post_change_callbacks[new_state]:
+            await dest.change_state_async(dest_state, self)
+
+        self.current_state = new_state
+
+        all(_.release_lock() for _ in locked)
+        for _ in locked_async:
+            await _.release_lock()
+
+
+    def check_for_async(self):
+
+        assert all(_.require_async() is False for _ in self.output_callbacks), \
+            "At least one of the output callbacks requires awaiting - use change_state_async instead."
+
+        checked = list()
+        for new_state in self.post_change_callbacks:
             for dest, dest_state in self.post_change_callbacks[new_state]:
-                dest.change_state(dest_state, self)
+                if dest in checked:
+                    continue
+                dest.check_for_async()
+                checked.append(dest)
+
+    def change_state(self, new_state: str, source: 'State'=None):
+        if not self.check_change_state(new_state, source):
+            return
+
+        self.check_for_async()
+
+        locked = []
+        for obj in self.output_callbacks:
+            try:
+                obj.acquire_lock(new_state)
+                locked.append(obj)
+            except:
+                all(_.release_lock() for _ in locked)
+                raise
+
+        all(_.change() for _ in self.output_callbacks)
+
+        for dest, dest_state in self.post_change_callbacks[new_state]:
+            dest.change_state(dest_state, self)
+
+        self.current_state = new_state
+
+        all(_.release_lock() for _ in self.output_callbacks)
 
     def __set__(self, instance, value):
         self.change_state(value, instance)
@@ -215,37 +310,42 @@ class State(object):
 
         All of these functions should be non-blocking.
 
-        - notify(new_state)
+        - acquire_lock(new_state)
+
         Notify the desire to change state - called first.
-        Raise an exception to block the change from proceeding.
+
+        Raise an exception to block the change from proceeding (eg if another state object already has a lock).
+
         Your implementation should guarantee that after not raising
-        an exception during notify it will change state after begin is called.
+        an exception during acquire_lock, a call to change() will succeed.
 
-        - cancel()
-        Called to cancel the notified change (eg one of the other outputs raised an Exception)
-
-        - begin(new_state)
+        - change_state()
         Notify that a change is proceeding - (the change can be made now).
 
-        - completed(new_state)
-        Check whether a change has completed - return True to signify the change was
-        successful or False to signify the change is still in progress.
+        - release_lock()
+
+        Release the lock. If change() was called, only release the lock once the change
+        has been enacted. If change() was not called, release_lock immediately.
+
+        - require_async()
+
+        Indicate if the calls are async or not. See change_state_async()
 
         >>> from kirke.object import Object
-        >>> import logging
         >>> class GPIO(object):
         ...     def __init__(self):
-        ...         self._can_change = True
+        ...         self._lock = None
         ...         self.current_state = None
-        ...     def notify(self, new_state):
-        ...         if self._can_change is not True or self.current_state == new_state:
+        ...     def acquire_lock(self, new_state):
+        ...         if self._lock is not None:
         ...             raise Exception('Change not allowed')
-        ...     def begin(self, new_state):
-        ...         self.current_state = new_state
-        ...     def completed(self, new_state):
-        ...         return True
-        ...     def cancel(self):
-        ...         pass
+        ...         self._lock = new_state
+        ...     def change(self):
+        ...         self.current_state = self._lock
+        ...     def release_lock(self):
+        ...         self._lock = None
+        ...     def require_async(self):
+        ...         return False
         >>> system = Object(name='system', children={'connectivity': State(['offline', 'online'])})
         >>> gpio = GPIO()
         >>> system.connectivity.set_output(gpio)
@@ -256,7 +356,7 @@ class State(object):
         >>> system.connectivity = 'online'
         >>> print(gpio.current_state)
         online
-        >>> gpio._can_change = False
+        >>> gpio._lock = True
         >>> system.connectivity = 'offline'
         Traceback (most recent call last):
         ...
@@ -265,10 +365,10 @@ class State(object):
         True
         """
 
-        assert callable(obj.notify) and \
-               callable(obj.cancel) and \
-               callable(obj.begin) and \
-               callable(obj.completed)
+        assert callable(obj.acquire_lock) and \
+               callable(obj.change) and \
+               callable(obj.release_lock) and \
+               callable(obj.require_async)
         self.output_callbacks.add(obj)
 
 
