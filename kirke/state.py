@@ -107,6 +107,11 @@ class State(object):
         if new_state == cs:
             return False
 
+        if cs is None:
+            logger.debug('No change {}: {} -> {}'.format(self.__name__, cs, new_state))
+            self.current_state = new_state
+            return False
+
         if source is None:
             logger.debug('BEGIN {}: {} -> {}'.format(self.__name__, cs, new_state))
         else:
@@ -137,8 +142,9 @@ class State(object):
         >>> system = Object(name='system', children={'connectivity': State(['offline', 'online'])})
         >>> gpio = GPIO_Async()
         >>> system.connectivity.set_output(gpio)
+        >>> system.connectivity = 'offline'
         >>> print(system.connectivity)
-        connectivity=[offline, online]
+        connectivity=[OFFLINE, online]
         >>> gpio.current_state == None
         True
         >>> loop = asyncio.get_event_loop()
@@ -349,19 +355,35 @@ class State(object):
         >>> system = Object(name='system', children={'connectivity': State(['offline', 'online'])})
         >>> gpio = GPIO()
         >>> system.connectivity.set_output(gpio)
+
+        Note, that if you haven't defined a default for your State object, it starts in an
+        "undefined" state (where no state is considered active) :-
+
         >>> print(system.connectivity)
         connectivity=[offline, online]
+
+        Any change a state object makes from "undefined" to a defined state will NOT trigger any
+        output state changes. This is to allow an initial setup period where your system can
+        figure out what state objects need to have.
+
         >>> gpio.current_state == None
         True
         >>> system.connectivity = 'online'
-        >>> print(gpio.current_state)
-        online
-        >>> gpio._lock = True
+        >>> gpio.current_state == 'online'
+        False
+
+        Once the intial state is set, however, any changes will propagate as expected...
+
         >>> system.connectivity = 'offline'
+        >>> gpio.current_state == 'offline'
+        True
+
+        >>> gpio._lock = True
+        >>> system.connectivity = 'online'
         Traceback (most recent call last):
         ...
         Exception: Change not allowed
-        >>> system.connectivity == 'online'
+        >>> system.connectivity == 'offline'
         True
         """
 
