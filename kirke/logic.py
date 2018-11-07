@@ -1,12 +1,15 @@
 from kirke import state
-from typing import Dict, Any, List, Callable
+from typing import Dict, Any, List, Callable, Tuple
 
 class ConditionalInputOutput(object):
     """
 
     """
 
-    def __init__(self, condition: Callable, inputs: List[{'State', str}], outputs: List[{'State', str}]):
+    def __init__(self,
+                 condition: Callable,
+                 inputs: List[Tuple['state.State', str]],
+                 outputs: List[Tuple['state.State', str]]):
 
         self.condition = condition
         assert inputs and outputs
