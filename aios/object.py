@@ -1,15 +1,15 @@
 import logging, inspect
-logger = logging.getLogger('circe.object')
+logger = logging.getLogger('aios.object')
 
 from .state import State
 
 class Object(object):
-    """Object forms the basis of the Circe system.
+    """Object forms the basis of the aios system.
 
-    To use Circe, the first thing to do is create a class that inherits
+    To use aios, the first thing to do is create a class that inherits
     from Object for each type of object in your overall system.
 
-    When instantiating your class, the following (optional) Circe keywords can be specified:-
+    When instantiating your class, the following (optional) aios keywords can be specified:-
 
     * name
     * children
@@ -27,7 +27,7 @@ class Object(object):
     >>> assert system.endpoint.__parent__ is system
 
     Your Object derived classes can have their own __init__, but you must
-    include **kwargs to capture arbitrary arguments which are used by Circe
+    include **kwargs to capture arbitrary arguments which are used by aios
 
     >>> class System(Object):
     ...     def __init__(self, device_mac, **kwargs):
@@ -35,8 +35,8 @@ class Object(object):
     >>> system = System(name='iot', device_mac='ab:cd:ef:gh:12', children={'endpoint': Node()})
     >>> assert system.device_mac == 'ab:cd:ef:gh:12' and system.__name__ == 'iot'
 
-    The Circe hierarchy is setup after the child classes are created, so things will
-    break if you try to use a Circe construct during your classes __init__
+    The aios hierarchy is setup after the child classes are created, so things will
+    break if you try to use a aios construct during your classes __init__
 
     >>> class Node(Object):
     ...     def __init__(self, **kwargs):
@@ -46,37 +46,37 @@ class Object(object):
     ...
     AttributeError: 'Node' object has no attribute '__parent__'
 
-    If you need to perform setup or initialisation tasks on any Circe Children objects
-    using Circe constructs, define a _circe_child_init function (which has no arguments)
-    and when you're Circe system has been instantiated, call _circe_state_init() on the top
+    If you need to perform setup or initialisation tasks on any aios Children objects
+    using aios constructs, define a _aios_child_init function (which has no arguments)
+    and when you're aios system has been instantiated, call _aios_state_init() on the top
     level object :-
 
 
     >>> class Node(Object):
-    ...     def _circe_child_init(self):
+    ...     def _aios_child_init(self):
     ...         self.__parent__.__name__ = 'node-123'
     >>> system = System(name='iot', device_mac='ab:cd:ef:gh:12', children={'endpoint': Node()})
     >>> print(system)
     <iot <iot.endpoint>>
-    >>> system._circe_state_init()
+    >>> system._aios_state_init()
     <node-123 <node-123.endpoint>>
 
-    Note - you don't need to use the _circe_child_init on the top Class of your
-    Circe hierarchy though, because all of the child objects have been instantiated by the time
+    Note - you don't need to use the _aios_child_init on the top Class of your
+    aios hierarchy though, because all of the child objects have been instantiated by the time
     __init__ is run on that top object.
 
     >>> class System(Object):
     ...     def __init__(self, device_mac, **kwargs):
     ...         self.device_mac = device_mac
-    ...         for name, obj in self._circe_children.items():
+    ...         for name, obj in self._aios_children.items():
     ...             obj.__name__ = 'MAC:{}-{}'.format(device_mac, name)
-    >>> system = System(name='iot', device_mac='ab:cd:ef:gh:12', children={'endpoint': Node()})._circe_state_init()
+    >>> system = System(name='iot', device_mac='ab:cd:ef:gh:12', children={'endpoint': Node()})._aios_state_init()
     >>> print(system.endpoint)
     <node-123.MAC:ab:cd:ef:gh:12-endpoint>
 
     You can add children to an object at any time, but names must be unique for each parent
 
-    >>> system._circe_add_child('endpoint', Node())
+    >>> system._aios_add_child('endpoint', Node())
     Traceback (most recent call last):
     ...
     Exception: An object named "endpoint" was already defined on "node-123"
@@ -86,14 +86,14 @@ class Object(object):
         o = super().__new__(cls)
 
         setattr(o, '__name__', kwargs.pop('name', cls.__name__))
-        setattr(o, '_circe_children', {})
+        setattr(o, '_aios_children', {})
         for name, obj in  kwargs.pop('children', {}).items():
             #all children are already instances
-            o._circe_add_child(name, obj)
+            o._aios_add_child(name, obj)
 
         return o
 
-    def _circe_add_child(self, name, obj):
+    def _aios_add_child(self, name, obj):
         try:
             getattr(self, name)
             raise Exception('An object named "{}" was already defined on "{}"'.format(name, self.__name__))
@@ -102,13 +102,13 @@ class Object(object):
         obj.__parent__ = self
         obj.__name__ = name
         setattr(self, name, obj)
-        self._circe_children[name] = obj
+        self._aios_children[name] = obj
 
-    def _circe_state_init(self):
-        for name, obj in getattr(self, '_circe_children', {}).items():
-            if hasattr(obj, '_circe_child_init') and callable(obj._circe_child_init):
-                obj._circe_child_init()
-                obj._circe_state_init()
+    def _aios_state_init(self):
+        for name, obj in getattr(self, '_aios_children', {}).items():
+            if hasattr(obj, '_aios_child_init') and callable(obj._aios_child_init):
+                obj._aios_child_init()
+                obj._aios_state_init()
         return self
 
     def __branch__(self):
@@ -124,7 +124,7 @@ class Object(object):
 
     def __repr__(self):
         names = map(lambda _:_.__name__, self.__branch__())
-        states = ' '.join(map(lambda _:_.__repr__(), self._circe_children.values()))
+        states = ' '.join(map(lambda _:_.__repr__(), self._aios_children.values()))
         return '<{}{}>'.format('.'.join(names), (' ' if states else '') + states)
 
     def __setattr__(self, attr, val):

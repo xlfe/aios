@@ -1,12 +1,12 @@
-## circe
+## aios
 
-A state and transition abstraction manager for Python 3.5+
+asynchronous state, transition and abstraction manager for Python 3.5+
 
 ```bash
-pip install kirke
+pip install aios
 ```
 
-[Docs are available](http://kirke.readthedocs.org) - but are a work in progress.
+[Docs are available](http://aios.readthedocs.org) - but are a work in progress.
 
 ### Features
 

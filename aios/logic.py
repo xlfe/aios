@@ -1,20 +1,19 @@
 import asyncio
-from kirke import state
+from aios import state
 from typing import Dict, Any, List, Callable, Tuple
 import logging
-logger = logging.getLogger('circe.logic')
+logger = logging.getLogger('aios.logic')
 
 class ConditionalInputOutput(object):
     """
-
-    >>> from kirke import State
+    >>> from aios import State
     >>> A = State(['enabled', 'disabled'], name='A', default='disabled')
     >>> B = State(['enabled', 'disabled'], name='B', default='disabled')
     >>> O = State(['enabled', 'disabled'], name='O')
     >>> ConditionalInputOutput(all, [A.enabled, B.enabled], [O.enabled])
-    <kirke.logic.ConditionalInputOutput object at 0x...>
+    <aios.logic.ConditionalInputOutput object at 0x...>
     >>> ConditionalInputOutput(any, [A.disabled, B.disabled], [O.disabled])
-    <kirke.logic.ConditionalInputOutput object at 0x...>
+    <aios.logic.ConditionalInputOutput object at 0x...>
     >>> print(O)
     O=[enabled, DISABLED]
     >>> A.enabled = True
@@ -139,4 +138,25 @@ class ConditionalInputOutput(object):
                 return False
 
         return Output(self, idx)
+
+
+class TimeBuffer(object):
+    """
+    >>> from aios import State
+    >>> A = State(['enabled', 'disabled'], name='A', default='disabled')
+    >>> O = State(['enabled', 'disabled'], name='O')
+    >>> tb = TimeBuffer()
+    >>> tb.add(delay=10, input=A.enabled, output=O.enabled)
+    >>> tb.add(delay=0, input=A.disabled, output=O.disabled)
+
+    """
+    def __init__(self):
+
+        self.buffers = []
+
+    def add(self,
+            delay: int,
+            input: Tuple['state.State', str],
+            output: Tuple['state.State', str]):
+        pass
 

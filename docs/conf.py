@@ -19,7 +19,7 @@
 
 # -- Project information -----------------------------------------------------
 
-project = 'circe'
+project = 'aios'
 copyright = '2018, xlfe'
 author = 'xlfe'
 
@@ -105,7 +105,7 @@ html_static_path = ['_static']
 # -- Options for HTMLHelp output ---------------------------------------------
 
 # Output file base name for HTML help builder.
-htmlhelp_basename = 'circedoc'
+htmlhelp_basename = 'aiosdoc'
 
 
 # -- Options for LaTeX output ------------------------------------------------
@@ -132,7 +132,7 @@ latex_elements = {
 # (source start file, target name, title,
 #  author, documentclass [howto, manual, or own class]).
 latex_documents = [
-    (master_doc, 'circe.tex', 'circe Documentation',
+    (master_doc, 'aios.tex', 'aios Documentation',
      'xlfe', 'manual'),
 ]
 
@@ -142,7 +142,7 @@ latex_documents = [
 # One entry per manual page. List of tuples
 # (source start file, name, description, authors, manual section).
 man_pages = [
-    (master_doc, 'circe', 'circe Documentation',
+    (master_doc, 'aios', 'aios Documentation',
      [author], 1)
 ]
 
@@ -153,8 +153,8 @@ man_pages = [
 # (source start file, target name, title, author,
 #  dir menu entry, description, category)
 texinfo_documents = [
-    (master_doc, 'circe', 'circe Documentation',
-     author, 'circe', 'One line description of project.',
+    (master_doc, 'aios', 'aios Documentation',
+     author, 'aios', 'One line description of project.',
      'Miscellaneous'),
 ]
 

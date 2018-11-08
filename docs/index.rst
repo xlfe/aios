@@ -1,15 +1,12 @@
-.. circe documentation master file, created by
-   sphinx-quickstart on Thu Nov  1 19:31:16 2018.
-   You can adapt this file completely to your liking, but it should at least
-   contain the root `toctree` directive.
+.. aios documentation master file
 
-circe
+aios
 =================================
 
 
 Install using pip::
 
-   $ pip install kirke
+   $ pip install aios
 
 
 * :ref:`modindex`

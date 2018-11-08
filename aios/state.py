@@ -5,7 +5,7 @@ import inspect
 import collections
 from typing import Dict, Any, List, Callable
 
-logger = logging.getLogger('circe.state')
+logger = logging.getLogger('aios.state')
 
 # notify
 # cancel
@@ -20,12 +20,12 @@ logger = logging.getLogger('circe.state')
 
 class State(object):
     """
-    State allows you to manage a state machine and state transitions and integrates with Circe Objects.
+    State allows you to manage a state machine and state transitions and integrates with aios Objects.
 
-    >>> from kirke.object import Object
+    >>> from aios.object import Object
     >>> class System(Object):
     ...     def __init__(self, **kwargs):
-    ...         self._circe_add_child('connectivity', State(['online', 'offline']))
+    ...         self._aios_add_child('connectivity', State(['online', 'offline']))
     >>> system = System()
 
     If you don't specify a default state, the state is undefined to begin with :-
@@ -117,7 +117,7 @@ class State(object):
     async def change_state_async(self, new_state: str, source: 'State'=None):
         """
 
-        >>> from kirke.object import Object
+        >>> from aios.object import Object
         >>> import asyncio
         >>> class GPIO_Async(object):
         ...     def __init__(self):
@@ -256,7 +256,7 @@ class State(object):
         """
         You can also connect states together by setting one state object as the input for another
 
-        >>> from kirke.object import Object
+        >>> from aios.object import Object
         >>> system = Object(name='system', children=dict(connectivity = State(['slow', 'offline', 'online'], default='offline')))
         >>> remote = Object(name='remote', children={'door':State(['closed', 'open'], default='closed')})
         >>> print(remote.door)
@@ -337,7 +337,7 @@ class State(object):
 
         Indicate if the calls are async or not. See change_state_async()
 
-        >>> from kirke.object import Object
+        >>> from aios.object import Object
         >>> class GPIO(object):
         ...     def __init__(self):
         ...         self._lock = None
