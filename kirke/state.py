@@ -107,15 +107,10 @@ class State(object):
         if new_state == cs:
             return False
 
-        if cs is None:
-            logger.debug('No change {}: {} -> {}'.format(self.__name__, cs, new_state))
-            self.current_state = new_state
-            return False
-
         if source is None:
-            logger.debug('BEGIN {}: {} -> {}'.format(self.__name__, cs, new_state))
+            logger.debug('{}: {} -> {}'.format(self.__name__, cs, new_state))
         else:
-            logger.debug('BEGIN {}: {} -> {} (Source: {})'.format(self.__name__, cs, new_state, source))
+            logger.debug('{}: {} -> {} (Source: {})'.format(self.__name__, cs, new_state, source))
 
         return True
 
@@ -142,15 +137,13 @@ class State(object):
         >>> system = Object(name='system', children={'connectivity': State(['offline', 'online'])})
         >>> gpio = GPIO_Async()
         >>> system.connectivity.set_output(gpio)
-        >>> system.connectivity = 'offline'
+        >>> loop = asyncio.get_event_loop()
+        >>> loop.run_until_complete(system.connectivity.change_state_async('offline'))
         >>> print(system.connectivity)
         connectivity=[OFFLINE, online]
-        >>> gpio.current_state == None
-        True
-        >>> loop = asyncio.get_event_loop()
         >>> loop.run_until_complete(system.connectivity.change_state_async('online'))
-        >>> print(gpio.current_state)
-        online
+        >>> print(system.connectivity)
+        connectivity=[offline, ONLINE]
         """
         if not self.check_change_state(new_state, source):
             return
@@ -167,12 +160,15 @@ class State(object):
                     obj.acquire_lock(new_state)
                     locked.append(obj)
             except:
-                all(_.release_lock() for _ in locked)
+                for _ in locked:
+                    _.release_lock()
                 for _ in locked_async:
                     await _.release_lock()
                 raise
 
-        all(_.change() for _ in locked)
+        for _ in locked:
+            _.change()
+
         for _ in locked_async:
             await _.change()
 
@@ -181,7 +177,8 @@ class State(object):
 
         self.current_state = new_state
 
-        all(_.release_lock() for _ in locked)
+        for _ in locked:
+            _.release_lock()
         for _ in locked_async:
             await _.release_lock()
 
@@ -211,17 +208,20 @@ class State(object):
                 obj.acquire_lock(new_state)
                 locked.append(obj)
             except:
-                all(_.release_lock() for _ in locked)
+                for _ in locked:
+                    _.release_lock()
                 raise
 
-        all(_.change() for _ in self.output_callbacks)
+        for _ in self.output_callbacks:
+             _.change()
 
         for dest, dest_state in self.post_change_callbacks[new_state]:
             dest.change_state(dest_state, self)
 
         self.current_state = new_state
 
-        all(_.release_lock() for _ in self.output_callbacks)
+        for _ in self.output_callbacks:
+            _.release_lock()
 
     def __set__(self, instance, value):
         self.change_state(value, instance)
@@ -362,17 +362,7 @@ class State(object):
         >>> print(system.connectivity)
         connectivity=[offline, online]
 
-        Any change a state object makes from "undefined" to a defined state will NOT trigger any
-        output state changes. This is to allow an initial setup period where your system can
-        figure out what state objects need to have.
-
-        >>> gpio.current_state == None
-        True
-        >>> system.connectivity = 'online'
-        >>> gpio.current_state == 'online'
-        False
-
-        Once the intial state is set, however, any changes will propagate as expected...
+        Note that changes from undefined states will also propagate...
 
         >>> system.connectivity = 'offline'
         >>> gpio.current_state == 'offline'
